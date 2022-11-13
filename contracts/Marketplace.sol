@@ -1,0 +1,198 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.9;
+
+import "./CollectionRegistry.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract Marketplace is Ownable {
+
+    CollectionRegistry collectionRegistry;
+
+    uint public fee;
+
+    struct Offer {
+        uint price;
+        bool active;
+    }
+
+    struct Listing {
+        uint price;
+        uint feePaid;
+    }
+
+    mapping( address => uint ) public userToFunds;
+
+    mapping( address => mapping( uint => Listing) ) public listings;
+    mapping( address => mapping( uint => bool) ) public listingAvailability;
+
+    mapping( address => mapping( uint => mapping( address => Offer ) ) ) public offers;
+    mapping( address => mapping( uint => mapping( address => bool ) ) ) public offerAvailability;
+
+
+    event CollectionCreated( address collectionAddress, address user );
+    event ItemCreated( uint indexed tokenId, address indexed collectionAddress, address indexed userAddress, string uri );
+    event TradeConfirmed( uint indexed tokenId, address indexed collecionAddress, address fromUser, address indexed toUser, uint price );
+    event ItemListedForSale( uint indexed tokenId, address indexed colectionAddress, uint price );
+    event ItemWithdrawnFromSale( uint indexed tokenId, address indexed colectionAddress );
+    event WithdrawalOfFunds( address indexed userAddress, uint funds );
+    event DepositOfFunds( address indexed userAddress, uint funds );
+    event OfferMade( uint indexed tokenId, address indexed collectionAddress, address indexed offerer, uint price );
+    event OfferWithdrawn( uint indexed tokenId, address indexed collectionAddress, address indexed offerer );
+    event OfferRejected( uint indexed tokenId, address indexed collectionAddress, address indexed offerer );
+
+
+    constructor( CollectionRegistry _collectionRegistry, uint startingFee ) {
+        collectionRegistry = _collectionRegistry;
+        fee = startingFee;
+    }
+
+    modifier onlyRegisteredCollection( Collection collection ) {
+        require( collectionRegistry.isRegisteredCollection( address( collection ) ), "Address is not a Marketplace Collection." );
+        _;
+    }
+
+    modifier onlyItemOwner( Collection collection, uint tokenId ) {
+        require( collection.ownerOf( tokenId ) == msg.sender, "User is not the owner of the item." );
+        _;
+    }
+
+    modifier offerMustExist( Collection collection, uint tokenId, address offerersAddress ) {
+        require( offerAvailability[ address( collection) ] [ tokenId ] [ offerersAddress ], "No offer made for that item.");
+        _;
+    }
+    
+    modifier offerMustBeActive( Collection collection, uint tokenId, address offerersAddress ) {
+        require( offers[ address( collection) ] [ tokenId ] [ offerersAddress ].active, "Offer already inactive." );
+        _;
+    }
+
+    modifier processingFeeMustBePaid( uint _fee ) {
+        require( _fee >= fee, "Deposited fee is insufficient to trade." );
+        _;
+    }
+    
+
+    function setFee( uint _fee ) onlyOwner external {
+        fee = _fee;
+    }
+
+    function withdrawFunds( uint amount ) external {
+        require( userToFunds[ msg.sender ] < amount, "Insufficient funds." );
+        userToFunds[ msg.sender ] -= amount;
+        ( bool sent, ) = msg.sender.call{ value: amount }("");
+        require( sent, "Failed to send Ether." );
+    }
+
+    function approveAnOffer( Collection collection, uint tokenId, address offerersAddress ) onlyRegisteredCollection( collection ) onlyItemOwner( collection, tokenId ) offerMustExist( collection, tokenId, offerersAddress ) offerMustBeActive( collection, tokenId, offerersAddress ) processingFeeMustBePaid( msg.value ) external payable {
+
+        offerAvailability[ address( collection) ] [ tokenId ] [ offerersAddress ] = false;
+
+        if( msg.value > fee ) {
+            userToFunds[ msg.sender ] += msg.value - fee;
+        }
+
+        userToFunds[ owner() ] += fee;
+        
+        uint price = offers[ address( collection) ] [ tokenId ] [ offerersAddress ].price;
+        userToFunds[ msg.sender ] += price;
+
+        collection.approve( address( this ), tokenId );
+        collection.safeTransferFrom( msg.sender, offerersAddress, tokenId );
+
+        emit TradeConfirmed( tokenId, address( collection ), msg.sender, offerersAddress, price );
+    }
+
+    function rejectAnOffer( Collection collection, uint tokenId, address offerersAddress ) onlyRegisteredCollection( collection ) onlyItemOwner( collection, tokenId ) offerMustExist( collection, tokenId, offerersAddress ) offerMustBeActive( collection, tokenId, offerersAddress ) external {
+
+        offers[ address( collection) ] [ tokenId ] [ offerersAddress ].active = false;
+        userToFunds[ offerersAddress ] += offers[ address( collection) ] [ tokenId ] [ offerersAddress ].price;
+
+        emit OfferRejected( tokenId, address( collection ), offerersAddress );
+    }
+
+    function withdrawAnOffer( Collection collection, uint tokenId ) onlyRegisteredCollection( collection ) offerMustExist( collection, tokenId, msg.sender ) offerMustBeActive( collection, tokenId, msg.sender ) external {
+        offerAvailability[ address( collection) ] [ tokenId ] [ msg.sender ] = false;
+
+        userToFunds[ msg.sender ] += offers[ address( collection) ] [ tokenId ] [ msg.sender ].price;
+
+        emit OfferWithdrawn( tokenId, address( collection ), msg.sender );
+    }
+
+    function makeAnOffer( Collection collection, uint tokenId ) onlyRegisteredCollection( collection ) external payable {
+        require( offerAvailability[ address( collection) ] [ tokenId ] [ msg.sender ] == false, "Offer already made for that item.");
+
+        Offer memory offer = Offer( msg.value, true );
+        offers[ address( collection ) ] [ tokenId ] [ msg.sender ] = offer ;
+        offerAvailability[ address( collection) ] [ tokenId ] [ msg.sender ] = true;
+
+        emit OfferMade( tokenId, address( collection ), msg.sender, msg.value );
+    }
+
+    function buyAnItem( Collection collection, uint tokenId ) onlyRegisteredCollection( collection ) external payable {
+        require( listingAvailability[ address( collection ) ] [ tokenId ], "Listing for that item doesn't exist.");
+        require( msg.value >= listings[ address( collection ) ] [ tokenId ].price , "Amount paid is insufficient.");
+
+        uint price = listings[ address( collection ) ] [ tokenId ].price;
+        
+        if( msg.value > price ) {
+            userToFunds[ msg.sender ] += msg.value - price;
+        }
+
+        userToFunds[ owner() ] += listings[ address( collection ) ] [ tokenId ].feePaid;
+        
+        address tokenOwner = collection.ownerOf( tokenId );
+        userToFunds[ tokenOwner ] += price;
+
+        collection.approve( address( this ), tokenId );
+        collection.safeTransferFrom( tokenOwner, msg.sender, tokenId );
+
+        emit TradeConfirmed( tokenId, address( collection ), tokenOwner, msg.sender, price );
+    }
+
+    function withdrawFromSale( Collection collection, uint tokenId ) onlyRegisteredCollection( collection ) onlyItemOwner( collection, tokenId ) external {
+        require( listingAvailability[ address( collection ) ] [ tokenId ], "Listing for that item doesn't exist.");
+
+        listingAvailability[ address( collection ) ] [ tokenId ] = false;
+        userToFunds[ msg.sender ] += listings[ address( collection ) ] [ tokenId ].feePaid;
+
+        emit ItemWithdrawnFromSale( tokenId, address( collection ) );
+    }
+
+    function listForSale( Collection collection, uint tokenId, uint price ) onlyRegisteredCollection( collection) onlyItemOwner( collection, tokenId ) processingFeeMustBePaid( msg.value )  external payable {
+        require( listingAvailability[ address( collection ) ] [ tokenId ] == false, "Listing already created." );
+        
+        if( msg.value > fee ) {
+            userToFunds[ msg.sender ] += msg.value - fee;
+        }
+
+        listings[ address( collection ) ] [ tokenId ] = Listing( price, fee );
+        listingAvailability[ address( collection ) ] [ tokenId ] = true;
+        collection.approve( address( this ), tokenId );
+
+        emit ItemListedForSale( tokenId, address( collection ), price );
+    }
+
+    function createNewToken( Collection collection, string memory uri ) onlyRegisteredCollection( collection) external {
+        require( collectionRegistry.isUserCollectionOwner( address( collection ), msg.sender ), "User is not the owner of the collection." );
+
+        uint tokenId = collection.safeMint( msg.sender, uri );
+        emit ItemCreated( tokenId, address( collection ), msg.sender, uri );
+    }
+
+    function createNewCollection( string memory collectionName, string memory collectionSymbol ) external {
+        address collectionAddress = collectionRegistry.createNewCollection( collectionName, collectionSymbol );
+        emit CollectionCreated( collectionAddress, msg.sender );
+    }
+
+
+    fallback() external payable {
+        userToFunds[ msg.sender ] = msg.value;
+        emit DepositOfFunds( msg.sender, msg.value );
+    }
+
+    receive() external payable {
+        userToFunds[ msg.sender ] = msg.value;
+        emit DepositOfFunds( msg.sender, msg.value );
+    }
+
+}

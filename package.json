@@ -1,0 +1,23 @@
+{
+  "name": "marketplace",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mkolodziejczak/MarketPlace-hardhat.git"
+  },
+  "author": "mkolodziejczak",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mkolodziejczak/MarketPlace-hardhat/issues"
+  },
+  "homepage": "https://github.com/mkolodziejczak/MarketPlace-hardhat#readme",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^2.0.0",
+    "hardhat": "^2.12.0"
+  }
+}
