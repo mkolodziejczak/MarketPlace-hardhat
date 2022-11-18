@@ -7,14 +7,34 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 
 contract Collection is ERC721, ERC721URIStorage, Ownable {
+
     using Counters for Counters.Counter;
 
     Counters.Counter private _tokenIdCounter;
 
-    constructor(string memory collectionName, string memory symbol) ERC721(collectionName, symbol) {}
+    bytes32 public DOMAIN_SEPARATOR;
 
-    function _baseURI() internal pure override returns (string memory) {
-        return "asdsd";
+    bytes32 private immutable PERMIT_TYPEHASH =
+        keccak256("Permit(address owner,address spender,uint256 tokenId,uint256 nonce,uint256 deadline)");
+
+    mapping(uint256 => Counters.Counter) private _nonces;    
+
+    constructor(string memory collectionName, string memory symbol) ERC721(collectionName, symbol) {
+        DOMAIN_SEPARATOR = keccak256(
+            abi.encode(
+                keccak256(
+                    "EIP712Domain(string name,string version,address verifyingContract)"
+                ),
+                keccak256(bytes(collectionName)),
+                keccak256(bytes("1")),
+                address(this)
+            )
+        );
+    }
+
+    function nonces(uint256 tokenId) external view returns (uint256)
+    {
+        return _nonces[tokenId].current();
     }
 
     function safeMint(address to, string memory uri) public onlyOwner returns ( uint ) {
@@ -38,5 +58,44 @@ contract Collection is ERC721, ERC721URIStorage, Ownable {
         returns (string memory)
     {
         return super.tokenURI(tokenId);
+    }
+
+    function permitManagement( address owner, address spender, uint256 tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s ) external {
+        bool success = permit(owner, spender, tokenId, deadline, v, r, s);
+        if( !success ){
+            revert("Acquiring permission failed");
+        }
+        _approve(spender, tokenId);
+    }
+
+    function permit(address owner, address spender, uint256 tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s) internal view returns(bool) {
+        require(owner == ERC721.ownerOf(tokenId), "User is not the owner of the token");
+        require(deadline >= block.timestamp, "ERC721WithPermit: EXPIRED");
+
+        bytes32 digest =
+            keccak256(
+                abi.encodePacked(
+                    "\x19\x01",
+                    DOMAIN_SEPARATOR,
+                    keccak256(
+                        abi.encode(
+                            PERMIT_TYPEHASH,
+                            owner,
+                            spender,
+                            tokenId,
+                            _nonces[tokenId].current(),
+                            deadline
+                        )
+                    )
+                )
+            );
+
+        address recoveredAddress = ecrecover(digest, v, r, s);
+        require(
+            recoveredAddress != address(0) && recoveredAddress == owner,
+            "ERC721WithPermit: INVALID_SIGNATURE"
+        );
+
+        return true;
     }
 }

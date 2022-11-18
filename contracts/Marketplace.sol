@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.9;
 
-import "./CollectionRegistry.sol";
+import "./Collection.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract Marketplace is Ownable {
-
-    CollectionRegistry collectionRegistry;
 
     uint public fee;
 
@@ -19,6 +17,17 @@ contract Marketplace is Ownable {
         uint price;
         uint feePaid;
     }
+
+    struct CollectionStruct {
+        address addr;
+        string name;
+        string symbol;
+        address creator;
+    }
+
+    mapping( address => CollectionStruct[] ) public userToCollections;
+    mapping( address => CollectionStruct ) public collectionRegistry;
+    mapping( address => bool ) public collectionAvailability;
 
     mapping( address => uint ) public userToFunds;
 
@@ -39,15 +48,18 @@ contract Marketplace is Ownable {
     event OfferMade( uint indexed tokenId, address indexed collectionAddress, address indexed offerer, uint price );
     event OfferWithdrawn( uint indexed tokenId, address indexed collectionAddress, address indexed offerer );
     event OfferRejected( uint indexed tokenId, address indexed collectionAddress, address indexed offerer );
+    event MarketplaceApprovedForToken( uint indexed tokenId, address indexed collectionAddress );
+    event MarketplacePermissionsRevoked( uint indexed tokenId, address indexed collectionAddress );
 
 
-    constructor( CollectionRegistry _collectionRegistry, uint startingFee ) {
-        collectionRegistry = _collectionRegistry;
+
+    constructor( uint startingFee ) {
         fee = startingFee;
     }
+    
 
     modifier onlyRegisteredCollection( Collection collection ) {
-        require( collectionRegistry.isRegisteredCollection( address( collection ) ), "Address is not a Marketplace Collection." );
+        require( collectionAvailability[ address( collection) ], "Address is not a Marketplace Collection." );
         _;
     }
 
@@ -70,6 +82,28 @@ contract Marketplace is Ownable {
         require( _fee >= fee, "Deposited fee is insufficient to trade." );
         _;
     }
+
+
+    function createNewCollection( string memory collectionName, string memory collectionSymbol ) external returns ( address addr ) {
+        bytes memory contractBytecode = getCollectionBytecode( collectionName, collectionSymbol );
+        assembly {
+            addr := create(0, add(contractBytecode, 0x20), mload(contractBytecode))
+        }
+
+        require(addr != address(0), "Collection creation failed");
+
+        CollectionStruct memory collection = CollectionStruct( addr, collectionName, collectionSymbol, msg.sender );
+        userToCollections[ msg.sender ].push( collection );
+        collectionRegistry[ addr ] = collection;
+
+        emit CollectionCreated( addr, msg.sender );
+    }
+
+
+    function getCollectionBytecode(string memory collectionName, string memory collectionSymbol) internal pure returns (bytes memory) {
+        bytes memory bytecode = type(Collection).creationCode;
+        return abi.encodePacked(bytecode, abi.encode( collectionName, collectionSymbol));
+    }
     
 
     function setFee( uint _fee ) onlyOwner external {
@@ -83,8 +117,19 @@ contract Marketplace is Ownable {
         require( sent, "Failed to send Ether." );
     }
 
-    function approveAnOffer( Collection collection, uint tokenId, address offerersAddress ) onlyRegisteredCollection( collection ) onlyItemOwner( collection, tokenId ) offerMustExist( collection, tokenId, offerersAddress ) offerMustBeActive( collection, tokenId, offerersAddress ) processingFeeMustBePaid( msg.value ) external payable {
+    function permitManagement( Collection collection, uint tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s ) external {
+        collection.permitManagement(msg.sender, address(this), tokenId, deadline, v,r,s);
+        emit MarketplaceApprovedForToken( tokenId, address( collection ) );
+    }
 
+    
+    function revokePermission( Collection collection, uint tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s ) external {
+        collection.permitManagement(msg.sender, address(0), tokenId, deadline, v,r,s);
+        emit MarketplacePermissionsRevoked( tokenId, address( collection ) );
+    }
+
+    function approveAnOffer( Collection collection, uint tokenId, address offerersAddress ) onlyRegisteredCollection( collection ) onlyItemOwner( collection, tokenId ) offerMustExist( collection, tokenId, offerersAddress ) offerMustBeActive( collection, tokenId, offerersAddress ) processingFeeMustBePaid( msg.value ) external payable {
+        require(collection.getApproved( tokenId ) == address( this ), "Marketplace hasn't been approved for management of this token.");
         offerAvailability[ address( collection) ] [ tokenId ] [ offerersAddress ] = false;
 
         if( msg.value > fee ) {
@@ -96,8 +141,9 @@ contract Marketplace is Ownable {
         uint price = offers[ address( collection) ] [ tokenId ] [ offerersAddress ].price;
         userToFunds[ msg.sender ] += price;
 
-        collection.approve( address( this ), tokenId );
-        collection.safeTransferFrom( msg.sender, offerersAddress, tokenId );
+        
+        uint token = tokenId;
+        collection.safeTransferFrom( msg.sender, offerersAddress, token );
 
         emit TradeConfirmed( tokenId, address( collection ), msg.sender, offerersAddress, price );
     }
@@ -159,6 +205,7 @@ contract Marketplace is Ownable {
     }
 
     function listForSale( Collection collection, uint tokenId, uint price ) onlyRegisteredCollection( collection) onlyItemOwner( collection, tokenId ) processingFeeMustBePaid( msg.value )  external payable {
+        require(collection.getApproved( tokenId ) == address( this ), "Marketplace hasn't been approved for management of this token.");
         require( listingAvailability[ address( collection ) ] [ tokenId ] == false, "Listing already created." );
         
         if( msg.value > fee ) {
@@ -167,23 +214,16 @@ contract Marketplace is Ownable {
 
         listings[ address( collection ) ] [ tokenId ] = Listing( price, fee );
         listingAvailability[ address( collection ) ] [ tokenId ] = true;
-        collection.approve( address( this ), tokenId );
 
         emit ItemListedForSale( tokenId, address( collection ), price );
     }
 
     function createNewToken( Collection collection, string memory uri ) onlyRegisteredCollection( collection) external {
-        require( collectionRegistry.isUserCollectionOwner( address( collection ), msg.sender ), "User is not the owner of the collection." );
+        require( collectionRegistry[ address( collection ) ].creator == msg.sender , "User is not the owner of the collection." );
 
         uint tokenId = collection.safeMint( msg.sender, uri );
         emit ItemCreated( tokenId, address( collection ), msg.sender, uri );
     }
-
-    function createNewCollection( string memory collectionName, string memory collectionSymbol ) external {
-        address collectionAddress = collectionRegistry.createNewCollection( collectionName, collectionSymbol );
-        emit CollectionCreated( collectionAddress, msg.sender );
-    }
-
 
     fallback() external payable {
         userToFunds[ msg.sender ] = msg.value;
