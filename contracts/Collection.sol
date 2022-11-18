@@ -62,6 +62,7 @@ contract Collection is ERC721, ERC721URIStorage, Ownable {
 
     function permitManagement( address owner, address spender, uint256 tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s ) external {
         bool success = permit(owner, spender, tokenId, deadline, v, r, s);
+        _nonces[tokenId].increment();
         if( !success ){
             revert("Acquiring permission failed");
         }

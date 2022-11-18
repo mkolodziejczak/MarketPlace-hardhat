@@ -38,7 +38,7 @@ contract Marketplace is Ownable {
     mapping( address => mapping( uint => mapping( address => bool ) ) ) public offerAvailability;
 
 
-    event CollectionCreated( address collectionAddress, address user );
+    event CollectionCreated( string collectionName, string collectionSymbol, address collectionAddress, address user );
     event ItemCreated( uint indexed tokenId, address indexed collectionAddress, address indexed userAddress, string uri );
     event TradeConfirmed( uint indexed tokenId, address indexed collecionAddress, address fromUser, address indexed toUser, uint price );
     event ItemListedForSale( uint indexed tokenId, address indexed colectionAddress, uint price );
@@ -59,7 +59,7 @@ contract Marketplace is Ownable {
     
 
     modifier onlyRegisteredCollection( Collection collection ) {
-        require( collectionAvailability[ address( collection) ], "Address is not a Marketplace Collection." );
+        require( collectionAvailability[ address( collection ) ], "Address is not a Marketplace Collection." );
         _;
     }
 
@@ -95,8 +95,9 @@ contract Marketplace is Ownable {
         CollectionStruct memory collection = CollectionStruct( addr, collectionName, collectionSymbol, msg.sender );
         userToCollections[ msg.sender ].push( collection );
         collectionRegistry[ addr ] = collection;
+        collectionAvailability[ addr ] = true;
 
-        emit CollectionCreated( addr, msg.sender );
+        emit CollectionCreated( collectionName, collectionSymbol, addr, msg.sender );
     }
 
 
@@ -117,15 +118,18 @@ contract Marketplace is Ownable {
         require( sent, "Failed to send Ether." );
     }
 
-    function permitManagement( Collection collection, uint tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s ) external {
+    function grantPermission( Collection collection, uint tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s ) onlyRegisteredCollection( collection ) onlyItemOwner( collection, tokenId ) external {
         collection.permitManagement(msg.sender, address(this), tokenId, deadline, v,r,s);
         emit MarketplaceApprovedForToken( tokenId, address( collection ) );
     }
-
     
-    function revokePermission( Collection collection, uint tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s ) external {
+    function revokePermission( Collection collection, uint tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s ) onlyRegisteredCollection( collection ) onlyItemOwner( collection, tokenId ) external {
         collection.permitManagement(msg.sender, address(0), tokenId, deadline, v,r,s);
         emit MarketplacePermissionsRevoked( tokenId, address( collection ) );
+    }
+
+    function getTokenNonce( Collection collection, uint tokenId ) onlyRegisteredCollection( collection ) onlyItemOwner( collection, tokenId ) external view returns( uint ) {
+        return collection.nonces( tokenId );
     }
 
     function approveAnOffer( Collection collection, uint tokenId, address offerersAddress ) onlyRegisteredCollection( collection ) onlyItemOwner( collection, tokenId ) offerMustExist( collection, tokenId, offerersAddress ) offerMustBeActive( collection, tokenId, offerersAddress ) processingFeeMustBePaid( msg.value ) external payable {
