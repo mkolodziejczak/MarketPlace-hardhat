@@ -29,7 +29,7 @@ contract Marketplace is Ownable {
     mapping( address => CollectionStruct ) public collectionRegistry;
     mapping( address => bool ) public collectionAvailability;
 
-    mapping( address => uint ) public userToFunds;
+    mapping( address => uint256 ) public userToFunds;
 
     mapping( address => mapping( uint => Listing) ) public listings;
     mapping( address => mapping( uint => bool) ) public listingAvailability;
@@ -65,6 +65,11 @@ contract Marketplace is Ownable {
 
     modifier onlyItemOwner( Collection collection, uint tokenId ) {
         require( collection.ownerOf( tokenId ) == msg.sender, "User is not the owner of the item." );
+        _;
+    }
+
+    modifier mustNotBeOwner( Collection collection, uint tokenId ) {
+        require( collection.ownerOf( tokenId ) != msg.sender, "User is the owner of the item." );
         _;
     }
 
@@ -111,19 +116,21 @@ contract Marketplace is Ownable {
         fee = _fee;
     }
 
-    function withdrawFunds( uint amount ) external {
-        require( userToFunds[ msg.sender ] < amount, "Insufficient funds." );
-        userToFunds[ msg.sender ] -= amount;
+    function withdrawFunds( uint256 amount ) external {
+        require( userToFunds[ msg.sender ] >= amount, "Insufficient funds." );
+        userToFunds[ msg.sender ] = userToFunds[ msg.sender ] - amount;
         ( bool sent, ) = msg.sender.call{ value: amount }("");
         require( sent, "Failed to send Ether." );
+
+        emit WithdrawalOfFunds( msg.sender, amount );
     }
 
-    function grantPermission( Collection collection, uint tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s ) onlyRegisteredCollection( collection ) onlyItemOwner( collection, tokenId ) external {
+    function grantPermission( Collection collection, uint tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s ) onlyRegisteredCollection( collection )  external {
         collection.permitManagement(msg.sender, address(this), tokenId, deadline, v,r,s);
         emit MarketplaceApprovedForToken( tokenId, address( collection ) );
     }
     
-    function revokePermission( Collection collection, uint tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s ) onlyRegisteredCollection( collection ) onlyItemOwner( collection, tokenId ) external {
+    function revokePermission( Collection collection, uint tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s ) onlyRegisteredCollection( collection ) external {
         collection.permitManagement(msg.sender, address(0), tokenId, deadline, v,r,s);
         emit MarketplacePermissionsRevoked( tokenId, address( collection ) );
     }
@@ -155,6 +162,7 @@ contract Marketplace is Ownable {
     function rejectAnOffer( Collection collection, uint tokenId, address offerersAddress ) onlyRegisteredCollection( collection ) onlyItemOwner( collection, tokenId ) offerMustExist( collection, tokenId, offerersAddress ) offerMustBeActive( collection, tokenId, offerersAddress ) external {
 
         offers[ address( collection) ] [ tokenId ] [ offerersAddress ].active = false;
+        offerAvailability[ address( collection) ] [ tokenId ] [ offerersAddress ] = false;
         userToFunds[ offerersAddress ] += offers[ address( collection) ] [ tokenId ] [ offerersAddress ].price;
 
         emit OfferRejected( tokenId, address( collection ), offerersAddress );
@@ -168,7 +176,7 @@ contract Marketplace is Ownable {
         emit OfferWithdrawn( tokenId, address( collection ), msg.sender );
     }
 
-    function makeAnOffer( Collection collection, uint tokenId ) onlyRegisteredCollection( collection ) external payable {
+    function makeAnOffer( Collection collection, uint tokenId ) onlyRegisteredCollection( collection ) mustNotBeOwner(collection, tokenId ) external payable {
         require( offerAvailability[ address( collection) ] [ tokenId ] [ msg.sender ] == false, "Offer already made for that item.");
 
         Offer memory offer = Offer( msg.value, true );
@@ -178,7 +186,7 @@ contract Marketplace is Ownable {
         emit OfferMade( tokenId, address( collection ), msg.sender, msg.value );
     }
 
-    function buyAnItem( Collection collection, uint tokenId ) onlyRegisteredCollection( collection ) external payable {
+    function buyAnItem( Collection collection, uint tokenId ) onlyRegisteredCollection( collection ) mustNotBeOwner( collection, tokenId ) external payable {
         require( listingAvailability[ address( collection ) ] [ tokenId ], "Listing for that item doesn't exist.");
         require( msg.value >= listings[ address( collection ) ] [ tokenId ].price , "Amount paid is insufficient.");
 
@@ -193,7 +201,6 @@ contract Marketplace is Ownable {
         address tokenOwner = collection.ownerOf( tokenId );
         userToFunds[ tokenOwner ] += price;
 
-        collection.approve( address( this ), tokenId );
         collection.safeTransferFrom( tokenOwner, msg.sender, tokenId );
 
         emit TradeConfirmed( tokenId, address( collection ), tokenOwner, msg.sender, price );
