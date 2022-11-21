@@ -1,7 +1,6 @@
-# Sample Hardhat Project
+# Marketplace Hardhat Project
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a script that deploys that contract.
-
+Goerli network Marketplace contract address: 0x64cFA678B1f21Fc797cE9F1BD05A4f97C73d27eB
 Try running some of the following tasks:
 
 ```shell
