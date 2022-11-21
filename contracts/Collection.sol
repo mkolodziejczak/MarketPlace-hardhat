@@ -51,6 +51,10 @@ contract Collection is ERC721, ERC721URIStorage, Ownable {
         super._burn(tokenId);
     }
 
+    function requireMinted(uint256 tokenId) external view returns (bool) {
+        _requireMinted(tokenId);
+    }
+
     function tokenURI(uint256 tokenId)
         public
         view
@@ -72,6 +76,7 @@ contract Collection is ERC721, ERC721URIStorage, Ownable {
     function permit(address owner, address spender, uint256 tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s) internal view returns(bool) {
         require(owner == ERC721.ownerOf(tokenId), "User is not the owner of the token");
         require(deadline >= block.timestamp, "ERC721WithPermit: EXPIRED");
+        _requireMinted(tokenId);
 
         bytes32 digest =
             keccak256(

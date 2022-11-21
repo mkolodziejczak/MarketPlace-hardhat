@@ -178,6 +178,7 @@ contract Marketplace is Ownable {
 
     function makeAnOffer( Collection collection, uint tokenId ) onlyRegisteredCollection( collection ) mustNotBeOwner(collection, tokenId ) external payable {
         require( offerAvailability[ address( collection) ] [ tokenId ] [ msg.sender ] == false, "Offer already made for that item.");
+        require( collection.requireMinted(tokenId), "Item must be minted first");
 
         Offer memory offer = Offer( msg.value, true );
         offers[ address( collection ) ] [ tokenId ] [ msg.sender ] = offer ;
@@ -202,7 +203,7 @@ contract Marketplace is Ownable {
         userToFunds[ tokenOwner ] += price;
 
         collection.safeTransferFrom( tokenOwner, msg.sender, tokenId );
-
+        delete listings[ address( collection ) ] [ tokenId ];
         emit TradeConfirmed( tokenId, address( collection ), tokenOwner, msg.sender, price );
     }
 
