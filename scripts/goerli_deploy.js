@@ -19,7 +19,7 @@ async function deployMarketContract( fee, _privateKey) {
     await hre.run('print', { message: "Verifying on Etherscan..."});
     await hre.run("verify:verify", {
       address: marketplaceContract.address,
-      constructorArguments: [],
+      constructorArguments: [ fee ],
     });
 
     await hre.run('print', { message: "Done !!! "});

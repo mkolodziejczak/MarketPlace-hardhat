@@ -1,6 +1,7 @@
 # Marketplace Hardhat Project
 
-Goerli network Marketplace contract address: 0x64cFA678B1f21Fc797cE9F1BD05A4f97C73d27eB
+Goerli network Marketplace contract address: 0xF38998DF6Fae29f8c12B6A21E32cd1379ef0a154
+Etherscan verification link: https://goerli.etherscan.io/address/0xF38998DF6Fae29f8c12B6A21E32cd1379ef0a154#code
 Try running some of the following tasks:
 
 ```shell

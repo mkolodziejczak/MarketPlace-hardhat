@@ -53,6 +53,7 @@ contract Collection is ERC721, ERC721URIStorage, Ownable {
 
     function requireMinted(uint256 tokenId) external view returns (bool) {
         _requireMinted(tokenId);
+        return true;
     }
 
     function tokenURI(uint256 tokenId)
