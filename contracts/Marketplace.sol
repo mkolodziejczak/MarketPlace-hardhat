@@ -238,12 +238,12 @@ contract Marketplace is Ownable {
     }
 
     fallback() external payable {
-        userToFunds[ msg.sender ] = msg.value;
+        userToFunds[ msg.sender ] += msg.value;
         emit DepositOfFunds( msg.sender, msg.value );
     }
 
     receive() external payable {
-        userToFunds[ msg.sender ] = msg.value;
+        userToFunds[ msg.sender ] += msg.value;
         emit DepositOfFunds( msg.sender, msg.value );
     }
 
