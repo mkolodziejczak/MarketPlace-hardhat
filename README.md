@@ -7,9 +7,9 @@ To deploy following properties heve to be entered into hardhat.config.js:
 * etherscan.apikey - for etherscan verification
 * networks.goerli.url - url of th rpc on goerli network
 * networks.goerli.accounts - private key
-
+ 
 Separate tasks were created for deployment. To run call:
-
+ 
 ```shell
 npx hardhat deploy-georli --private-key $PRIVATE_KEY_OF_ACCOUNT_TO_BE_BILLED$ --network goerli
 npx hardhat deploy-local

@@ -230,4 +230,19 @@ describe("Marketplace", function () {
       const signature = await onAttemptToApprove( collAddress, 0, creator, zeroAddress );
       await expect(marketplace.connect(creator).revokePermission( collAddress, signature.tokenId, signature.deadline, signature.v, signature.r, signature.s )).to.emit(marketplace, 'MarketplacePermissionsRevoked').withArgs(0, collAddress);
     });
+
+    it("Should increment nonce on each signature", async function () {
+      const currentNonce = await marketplace.connect(creator).getTokenNonce(collAddress, 0); 
+      expect(currentNonce).to.equal(3);
+    });
+
+    it("Should deposit funds to user's marketplace balance", async function () {
+      const funds = ethers.utils.parseUnits('2', 'gwei');
+      const transaction = {
+        to: marketplace.address,
+        value: funds
+      };
+      
+      await expect(creator.sendTransaction(transaction)).to.emit(marketplace, 'DepositOfFunds').withArgs(creator.address, funds);
+    });
 });
