@@ -25,17 +25,27 @@ contract Marketplace is Ownable {
         address creator;
     }
 
+    struct Channel {
+        uint feePaid;
+        uint startingPrice;
+        address owner;
+        address offerer;
+    }
+
     mapping( address => CollectionStruct[] ) public userToCollections;
     mapping( address => CollectionStruct ) public collectionRegistry;
     mapping( address => bool ) public collectionAvailability;
 
     mapping( address => uint256 ) public userToFunds;
 
-    mapping( address => mapping( uint => Listing) ) public listings;
+    mapping( address => mapping( uint => Listing ) ) public listings;
     mapping( address => mapping( uint => bool) ) public listingAvailability;
 
     mapping( address => mapping( uint => mapping( address => Offer ) ) ) public offers;
     mapping( address => mapping( uint => mapping( address => bool ) ) ) public offerAvailability;
+
+    mapping( address => mapping( uint => Channel ) ) public negotiationChannels;
+    mapping( address => mapping( uint => bool ) ) public channelExistance;
 
 
     event CollectionCreated( string collectionName, string collectionSymbol, address collectionAddress, address user );
@@ -216,7 +226,7 @@ contract Marketplace is Ownable {
         emit ItemWithdrawnFromSale( tokenId, address( collection ) );
     }
 
-    function listForSale( Collection collection, uint tokenId, uint price ) onlyRegisteredCollection( collection) onlyItemOwner( collection, tokenId ) processingFeeMustBePaid( msg.value )  external payable {
+    function listForSale( Collection collection, uint tokenId, uint price ) onlyRegisteredCollection( collection) onlyItemOwner( collection, tokenId ) processingFeeMustBePaid( msg.value ) external payable {
         require(collection.getApproved( tokenId ) == address( this ), "Marketplace hasn't been approved for management of this token.");
         require( listingAvailability[ address( collection ) ] [ tokenId ] == false, "Listing already created." );
         
@@ -235,6 +245,32 @@ contract Marketplace is Ownable {
 
         uint tokenId = collection.safeMint( msg.sender, uri );
         emit ItemCreated( tokenId, address( collection ), msg.sender, uri );
+    }
+
+    function fundNegotiationChannel ( Collection collection, uint tokenId, address offerer, uint startingPrice ) onlyRegisteredCollection( collection) onlyItemOwner( collection, tokenId ) processingFeeMustBePaid( msg.value ) external payable {
+        require( channelExistance[ address( collection ) ][ tokenId ] == false, "You can only open one negotiation channel per token." );
+
+        if( msg.value > fee ) {
+            userToFunds[ msg.sender ] += msg.value - fee;
+        }
+
+        channelExistance[ address( collection ) ][ tokenId ] = true;  
+        negotiationChannels[ address( collection ) ][ tokenId ] = Channel( fee, startingPrice, msg.sender, offerer );
+    }
+
+//only owner or offerer
+    function defundNegotiationChannel ( Collection collection, uint tokenId ) external onlyRegisteredCollection( collection) {
+        require( channelExistance[ address( collection ) ][ tokenId ] == false, "Channel doesn't exist or is no longer active." );
+        
+        channelExistance[ address( collection ) ][ tokenId ] = false;  
+        Channel memory channel = negotiationChannels[ address( collection ) ][ tokenId ];
+        userToFunds[ collection.ownerOf( tokenId ) ] += channel.feePaid;
+        userToFunds[ channel.offerer ] += channel.startingPrice;
+    }
+
+    //only owner or offerer
+    function closeNegotiationChannel ( Collection collection, uint tokenId ) external onlyRegisteredCollection( collection) {
+        require( channelExistance[ address( collection ) ][ tokenId ] == false, "Channel doesn't exist or is no longer active." );
     }
 
     fallback() external payable {
